@@ -1,0 +1,151 @@
+# datasets/dataset1.toml
+
+# ── Identity ──────────────────────────────────────────────
+table    = "dataset1"
+label    = "Synthetic Sales Transactions"
+source   = "coldparse synthetic pipeline"
+
+context  = """
+A synthetic dataset of 515 regional B2B sales transactions across 2023.
+Records cover four territories, four product categories, order values,
+rep experience, and close dates. Seeded with realistic data quality issues
+including sparse columns, nulls, outlier entry errors, duplicate rows,
+and inconsistent region casing.
+"""
+
+question = """
+Which factors most reliably predict order value —
+and does rep experience compound with regional advantage?
+"""
+
+# ── Repair steps ──────────────────────────────────────────
+
+[[repair]]
+step        = "Drop duplicate rows"
+explanation = """
+15 duplicate rows were identified by matching on close_date, region,
+product_category, order_value, and rep_experience_years. All 15 were
+dropped, retaining the first occurrence.
+"""
+columns     = ["order_id"]
+
+  [[repair.comparisons]]
+  type    = "stats"
+  metrics = ["row_count"]
+
+[[repair]]
+step        = "Drop sparse columns"
+explanation = """
+Two columns exceeded 55% null rate and were dropped entirely.
+'notes' was 57.7% null. 'secondary_rep' was 59.4% null.
+No imputation strategy was viable at that sparsity level.
+"""
+columns     = ["notes", "secondary_rep"]
+
+  [[repair.comparisons]]
+  type    = "stats"
+  metrics = ["null_pct", "row_count"]
+
+[[repair]]
+step        = "Standardise region casing"
+explanation = """
+The region column had 22 apparent unique values due to inconsistent
+casing and trailing whitespace. Normalised to 4 canonical values
+via strip and title case.
+"""
+columns     = ["region"]
+
+  [[repair.comparisons]]
+  type  = "value_counts"
+  top_n = 8
+
+[[repair]]
+step        = "Remove order value outliers"
+explanation = """
+Outlier order values were removed using IQR fencing (Q1 - 3*IQR,
+Q3 + 3*IQR) followed by a floor of £500. Confirmed as data entry
+errors — values of £0.01, £99,999.99, and £999,999.00 had no
+supporting CRM records. 61 rows removed total.
+"""
+columns     = ["order_value"]
+
+  [[repair.comparisons]]
+  type    = "stats"
+  metrics = ["row_count", "mean", "std", "min", "max"]
+
+  [[repair.comparisons]]
+  type       = "chart"
+  chart_type = "box"
+
+[[repair]]
+step        = "Impute remaining order value nulls"
+explanation = """
+40 null values in order_value were imputed with the column median
+(£4,882.67) rather than the mean, to avoid influence from the
+outliers already present at that stage of cleaning.
+"""
+columns     = ["order_value"]
+
+  [[repair.comparisons]]
+  type    = "stats"
+  metrics = ["null_pct", "null_count"]
+
+# ── Findings ──────────────────────────────────────────────
+
+[[findings]]
+question  = "Does order value vary meaningfully by region?"
+narrative = """
+The Northeast produces the highest median order values, but the
+gap between regions is smaller than the raw data suggests.
+Outlier removal flattened the apparent dominance — all four regions
+sit within £800 of each other at the median.
+"""
+
+  [[findings.charts]]
+  type = "box"
+  x    = "region"
+  y    = "order_value"
+
+  [[findings.charts]]
+  type = "bar"
+  x    = "region"
+  y    = "order_value"
+  agg  = "mean"
+
+[[findings]]
+question  = "Is rep experience a reliable predictor of order value?"
+narrative = """
+There is a moderate positive correlation between rep experience and
+order value. The relationship holds across all regions but is
+strongest in the Northeast, suggesting regional advantage and
+experience compound rather than substitute.
+"""
+
+  [[findings.charts]]
+  type = "scatter"
+  x    = "rep_experience_years"
+  y    = "order_value"
+
+  [[findings.charts]]
+  type = "histogram"
+  col  = "rep_experience_years"
+
+[[findings]]
+question  = "Which product categories drive the most revenue?"
+narrative = """
+Enterprise licenses account for the largest share of total order
+value despite being outnumbered by SMB deals. Professional services
+and support contracts sit in the middle — worth investigating for
+margin rather than volume.
+"""
+
+  [[findings.charts]]
+  type = "bar"
+  x    = "product_category"
+  y    = "order_value"
+  agg  = "sum"
+
+  [[findings.charts]]
+  type   = "pie"
+  col    = "product_category"
+  values = "order_value"
